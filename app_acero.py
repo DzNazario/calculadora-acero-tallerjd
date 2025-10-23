@@ -1,64 +1,34 @@
-# app_acero_editable.py - VERSIÓN CON EDICIÓN Y PIEZAS
+# app_acero_produccion.py - VERSIÓN ESTABLE PARA STREAMLIT CLOUD
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
 import io
 
-# Configurar la página
+# Configuración mínima y estable
 st.set_page_config(
     page_title="Calculadora de Acero - Taller JD",
     page_icon="🏗️",
     layout="wide"
 )
 
-# CSS personalizado MEJORADO - COLORES VISIBLES
+# CSS simplificado
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
+        font-size: 2rem;
         color: #1f77b4;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
         font-weight: bold;
     }
     .metric-card {
         background-color: #ffffff;
-        padding: 1.5rem;
-        border-radius: 10px;
-        border-left: 5px solid #1f77b4;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #1f77b4;
         margin-bottom: 1rem;
         border: 1px solid #e0e0e0;
-    }
-    .metric-title {
-        color: #333333 !important;
-        font-weight: bold;
-        font-size: 1.1rem;
-        margin-bottom: 0.5rem;
-    }
-    .metric-value {
-        color: #1f77b4;
-        font-size: 1.8rem;
-        font-weight: bold;
-        margin: 0;
-    }
-    .metric-subvalue {
-        color: #2ca02c;
-        font-size: 1.2rem;
-        font-weight: bold;
-        margin: 0.5rem 0 0 0;
-    }
-    .section-title {
-        color: #1f77b4;
-        border-bottom: 3px solid #1f77b4;
-        padding-bottom: 0.5rem;
-        margin-top: 1rem;
-        margin-bottom: 1rem;
-        font-weight: bold;
-    }
-    .edit-buttons {
-        margin-top: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -72,76 +42,67 @@ PESOS_VARILLA = {
 
 ELEMENTOS = ["zapata", "losa", "viga", "columna", "dala", "castillo", "muro"]
 
-class CalculadoraAcero:
-    def __init__(self):
-        if 'df' not in st.session_state:
-            st.session_state.df = pd.DataFrame(columns=[
-                'elemento', 'localizacion', 'eje', 'grilla', 'diametro', 
-                'refuerzo', 'longitud', 'lg1', 'lg2', 'piezas', 'elementos'
-            ])
+# Inicialización segura de session_state
+if 'df_acero' not in st.session_state:
+    st.session_state.df_acero = pd.DataFrame(columns=[
+        'elemento', 'localizacion', 'eje', 'grilla', 'diametro', 
+        'refuerzo', 'longitud', 'lg1', 'lg2', 'piezas', 'elementos'
+    ])
+
+if 'edit_index' not in st.session_state:
+    st.session_state.edit_index = 0
+
+def calcular_totales(df):
+    if df.empty:
+        return {}
     
-    def agregar_elemento(self, datos):
-        nuevo_registro = pd.DataFrame([datos])
-        st.session_state.df = pd.concat([st.session_state.df, nuevo_registro], ignore_index=True)
+    resultados = {}
+    df_temp = df.copy()
+    df_temp['longitud_total'] = df_temp['longitud'] + df_temp['lg1'] + df_temp['lg2']
+    df_temp['subtotal_ml'] = df_temp['longitud_total'] * df_temp['piezas'] * df_temp['elementos']
     
-    def eliminar_elemento(self, index):
-        st.session_state.df = st.session_state.df.drop(index).reset_index(drop=True)
-    
-    def editar_elemento(self, index, datos):
-        for col, valor in datos.items():
-            st.session_state.df.at[index, col] = valor
-    
-    def calcular_totales(self):
-        if st.session_state.df.empty:
-            return {}
+    for diametro in df_temp['diametro'].unique():
+        ml_total = df_temp[df_temp['diametro'] == diametro]['subtotal_ml'].sum()
+        kg_total = ml_total * PESOS_VARILLA.get(diametro, 0)
+        piezas_12m = np.ceil(ml_total / 12)
         
-        resultados = {}
-        df_temp = st.session_state.df.copy()
-        df_temp['longitud_total'] = df_temp['longitud'] + df_temp['lg1'] + df_temp['lg2']
-        df_temp['subtotal_ml'] = df_temp['longitud_total'] * df_temp['piezas'] * df_temp['elementos']
-        
-        for diametro in df_temp['diametro'].unique():
-            ml_total = df_temp[df_temp['diametro'] == diametro]['subtotal_ml'].sum()
-            kg_total = ml_total * PESOS_VARILLA.get(diametro, 0)
-            piezas_12m = np.ceil(ml_total / 12)
-            
-            resultados[diametro] = {
-                'ml_total': ml_total,
-                'kg_total': kg_total,
-                'piezas_12m': piezas_12m
-            }
-        
-        return resultados
+        resultados[diametro] = {
+            'ml_total': ml_total,
+            'kg_total': kg_total,
+            'piezas_12m': piezas_12m
+        }
+    
+    return resultados
 
 def main():
     # Header principal
     st.markdown('<h1 class="main-header">🏗️ CALCULADORA DE ACERO - TALLER JD</h1>', unsafe_allow_html=True)
     
-    # Inicializar calculadora
-    calculadora = CalculadoraAcero()
-    
     # Sidebar para entrada de datos
     with st.sidebar:
         st.markdown("### ➕ NUEVO ELEMENTO")
         
-        with st.form("nuevo_elemento"):
+        with st.form("nuevo_elemento", clear_on_submit=True):
             elemento = st.text_input("Elemento*", placeholder="Zapata A1")
-            localizacion = st.text_input("Localización", placeholder="Cimentación")
-            eje = st.text_input("Eje", placeholder="A")
-            grilla = st.text_input("Grilla", placeholder="1")
-            diametro = st.selectbox("Diámetro (ø)*", options=list(PESOS_VARILLA.keys()))
-            refuerzo = st.selectbox("Tipo de Refuerzo*", options=ELEMENTOS)
             
             col1, col2 = st.columns(2)
             with col1:
-                longitud = st.number_input("Longitud (m)*", min_value=0.0, step=0.1, value=1.0)
+                localizacion = st.text_input("Localización", placeholder="Cimentación")
             with col2:
-                piezas = st.number_input("Piezas*", min_value=1, step=1, value=1)
+                diametro = st.selectbox("Diámetro (ø)*", options=list(PESOS_VARILLA.keys()))
+            
+            refuerzo = st.selectbox("Tipo de Refuerzo*", options=ELEMENTOS)
             
             col3, col4 = st.columns(2)
             with col3:
-                lg1 = st.number_input("Gancho 1 (m)", min_value=0.0, step=0.1, value=0.0)
+                longitud = st.number_input("Longitud (m)*", min_value=0.0, step=0.1, value=1.0)
             with col4:
+                piezas = st.number_input("Piezas*", min_value=1, step=1, value=1)
+            
+            col5, col6 = st.columns(2)
+            with col5:
+                lg1 = st.number_input("Gancho 1 (m)", min_value=0.0, step=0.1, value=0.0)
+            with col6:
                 lg2 = st.number_input("Gancho 2 (m)", min_value=0.0, step=0.1, value=0.0)
             
             elementos = st.number_input("Elementos*", min_value=1, step=1, value=1)
@@ -152,11 +113,11 @@ def main():
                 if not elemento:
                     st.error("❌ El campo 'Elemento' es obligatorio")
                 else:
-                    datos = {
+                    nuevo_registro = pd.DataFrame([{
                         'elemento': elemento,
                         'localizacion': localizacion,
-                        'eje': eje,
-                        'grilla': grilla,
+                        'eje': '',
+                        'grilla': '',
                         'diametro': diametro,
                         'refuerzo': refuerzo,
                         'longitud': longitud,
@@ -164,10 +125,10 @@ def main():
                         'lg2': lg2,
                         'piezas': piezas,
                         'elementos': elementos
-                    }
-                    calculadora.agregar_elemento(datos)
+                    }])
+                    
+                    st.session_state.df_acero = pd.concat([st.session_state.df_acero, nuevo_registro], ignore_index=True)
                     st.success("✅ Elemento agregado!")
-                    st.rerun()
 
     # Layout principal
     col1, col2 = st.columns([2, 1])
@@ -175,80 +136,42 @@ def main():
     with col1:
         st.markdown("### 📋 ELEMENTOS REGISTRADOS")
         
-        if not st.session_state.df.empty:
-            # Mostrar tabla con cálculos
-            df_display = st.session_state.df.copy()
-            df_display['longitud_total'] = df_display['longitud'] + df_display['lg1'] + df_display['lg2']
-            df_display['subtotal_ml'] = df_display['longitud_total'] * df_display['piezas'] * df_display['elementos']
-            
+        if not st.session_state.df_acero.empty:
             # Mostrar tabla
-            st.dataframe(df_display, use_container_width=True, height=400)
+            df_display = st.session_state.df_acero.copy()
+            st.dataframe(df_display, use_container_width=True, height=300)
             
-            # SECCIÓN DE EDICIÓN
-            st.markdown("### ✏️ EDITAR ELEMENTO")
-            col_edit1, col_edit2 = st.columns(2)
+            # Sección de gestión
+            with st.expander("✏️ GESTIÓN DE ELEMENTOS", expanded=False):
+                col_sel, col_del = st.columns([2, 1])
+                
+                with col_sel:
+                    indices = list(range(len(st.session_state.df_acero)))
+                    st.session_state.edit_index = st.selectbox(
+                        "Selecciona elemento:",
+                        indices,
+                        format_func=lambda x: f"{x+1}. {st.session_state.df_acero.iloc[x]['elemento']}"
+                    )
+                
+                with col_del:
+                    st.write("")
+                    if st.button("🗑️ ELIMINAR", use_container_width=True):
+                        st.session_state.df_acero = st.session_state.df_acero.drop(st.session_state.edit_index).reset_index(drop=True)
+                        st.success("✅ Elemento eliminado!")
+                        st.rerun()
             
-            with col_edit1:
-                indices = list(range(len(st.session_state.df)))
-                elemento_a_editar = st.selectbox("Selecciona elemento a editar:", indices, format_func=lambda x: f"Fila {x+1}: {st.session_state.df.iloc[x]['elemento']}")
-            
-            with col_edit2:
-                st.write("")  # Espacio
-                if st.button("🗑️ ELIMINAR ELEMENTO"):
-                    calculadora.eliminar_elemento(elemento_a_editar)
-                    st.success("✅ Elemento eliminado!")
-                    st.rerun()
-            
-            # Formulario de edición
-            with st.form("editar_elemento"):
-                st.write("**Editar datos:**")
-                col_edit3, col_edit4 = st.columns(2)
-                
-                with col_edit3:
-                    nuevo_elemento = st.text_input("Elemento", value=st.session_state.df.iloc[elemento_a_editar]['elemento'])
-                    nuevo_diametro = st.selectbox("Diámetro", options=list(PESOS_VARILLA.keys()), index=list(PESOS_VARILLA.keys()).index(st.session_state.df.iloc[elemento_a_editar]['diametro']))
-                    nueva_longitud = st.number_input("Longitud", min_value=0.0, step=0.1, value=float(st.session_state.df.iloc[elemento_a_editar]['longitud']))
-                    nuevo_lg1 = st.number_input("Gancho 1", min_value=0.0, step=0.1, value=float(st.session_state.df.iloc[elemento_a_editar]['lg1']))
-                
-                with col_edit4:
-                    nueva_localizacion = st.text_input("Localización", value=st.session_state.df.iloc[elemento_a_editar]['localizacion'])
-                    nuevo_refuerzo = st.selectbox("Refuerzo", options=ELEMENTOS, index=ELEMENTOS.index(st.session_state.df.iloc[elemento_a_editar]['refuerzo']))
-                    nuevas_piezas = st.number_input("Piezas", min_value=1, step=1, value=int(st.session_state.df.iloc[elemento_a_editar]['piezas']))
-                    nuevo_lg2 = st.number_input("Gancho 2", min_value=0.0, step=0.1, value=float(st.session_state.df.iloc[elemento_a_editar]['lg2']))
-                
-                nuevos_elementos = st.number_input("Elementos", min_value=1, step=1, value=int(st.session_state.df.iloc[elemento_a_editar]['elementos']))
-                
-                edit_submitted = st.form_submit_button("💾 GUARDAR CAMBIOS")
-                
-                if edit_submitted:
-                    datos_editados = {
-                        'elemento': nuevo_elemento,
-                        'localizacion': nueva_localizacion,
-                        'diametro': nuevo_diametro,
-                        'refuerzo': nuevo_refuerzo,
-                        'longitud': nueva_longitud,
-                        'lg1': nuevo_lg1,
-                        'lg2': nuevo_lg2,
-                        'piezas': nuevas_piezas,
-                        'elementos': nuevos_elementos
-                    }
-                    calculadora.editar_elemento(elemento_a_editar, datos_editados)
-                    st.success("✅ Cambios guardados!")
-                    st.rerun()
-            
-            # Botones de acción
+            # Botones de exportación
             st.markdown("---")
-            col_btn1, col_btn2, col_btn3 = st.columns(3)
+            st.markdown("### 📤 EXPORTAR DATOS")
             
-            with col_btn1:
+            col_exp1, col_exp2 = st.columns(2)
+            
+            with col_exp1:
                 # Exportar a Excel
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    # Hoja de cuantificación
-                    st.session_state.df.to_excel(writer, sheet_name='CUANTIFICACION', index=False)
-                    
-                    # Hoja de resumen
-                    resultados = calculadora.calcular_totales()
+                    st.session_state.df_acero.to_excel(writer, sheet_name='CUANTIFICACION', index=False)
+                    resultados = calcular_totales(st.session_state.df_acero)
                     resumen_data = []
                     for diam, datos in resultados.items():
                         resumen_data.append({
@@ -267,96 +190,83 @@ def main():
                     use_container_width=True
                 )
             
-            with col_btn2:
+            with col_exp2:
                 if st.button("🗑️ LIMPIAR TODO", use_container_width=True):
-                    st.session_state.df = pd.DataFrame(columns=[
+                    st.session_state.df_acero = pd.DataFrame(columns=[
                         'elemento', 'localizacion', 'eje', 'grilla', 'diametro', 
                         'refuerzo', 'longitud', 'lg1', 'lg2', 'piezas', 'elementos'
                     ])
+                    st.success("✅ Todos los elementos eliminados!")
                     st.rerun()
-                    
-            with col_btn3:
-                st.metric("Elementos", len(st.session_state.df))
                 
         else:
             st.info("👆 Usa el formulario para agregar elementos")
             st.write("---")
-            st.write("### 💡 Instrucciones:")
+            st.write("**💡 Instrucciones:**")
             st.write("1. Completa el formulario a la izquierda")
             st.write("2. Haz clic en 'AGREGAR ELEMENTO'")
             st.write("3. Los cálculos se actualizan automáticamente")
-            st.write("4. Puedes editar o eliminar elementos después")
-            st.write("5. Descarga tu Excel al finalizar")
+            st.write("4. Descarga tu Excel al finalizar")
 
     with col2:
         st.markdown("### 📊 RESUMEN DEL PROYECTO")
         
-        if not st.session_state.df.empty:
-            resultados = calculadora.calcular_totales()
+        if not st.session_state.df_acero.empty:
+            resultados = calcular_totales(st.session_state.df_acero)
             
-            # Métricas principales
             total_kg = sum([resultados[d]['kg_total'] for d in resultados])
             total_ml = sum([resultados[d]['ml_total'] for d in resultados])
             total_piezas = sum([resultados[d]['piezas_12m'] for d in resultados])
             
-            # Tarjetas de métricas CON TEXTO VISIBLE
+            # Métricas
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">📏 METROS LINEALES</div>
-                <div class="metric-value">{total_ml:,.1f} ML</div>
+                <strong>📏 METROS LINEALES</strong><br>
+                <span style="color: #1f77b4; font-size: 1.5rem; font-weight: bold;">{total_ml:,.1f} ML</span>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">⚖️ PESO TOTAL</div>
-                <div class="metric-value">{total_kg:,.1f} KG</div>
-                <div class="metric-subvalue">{total_kg/1000:,.2f} Toneladas</div>
+                <strong>⚖️ PESO TOTAL</strong><br>
+                <span style="color: #ff7f0e; font-size: 1.5rem; font-weight: bold;">{total_kg:,.1f} KG</span><br>
+                <span style="color: #2ca02c; font-weight: bold;">{total_kg/1000:,.2f} Toneladas</span>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">📦 PIEZAS DE 12m</div>
-                <div class="metric-value">{total_piezas:.0f}</div>
-                <div style="color: #666; font-size: 0.8rem; margin-top: 0.5rem;">Total de varillas necesarias</div>
+                <strong>📦 PIEZAS DE 12m</strong><br>
+                <span style="color: #d62728; font-size: 1.5rem; font-weight: bold;">{total_piezas:.0f}</span><br>
+                <small>Total de varillas</small>
             </div>
             """, unsafe_allow_html=True)
             
-            # Resumen por diámetro
-            st.markdown("### 🔍 DETALLE POR DIÁMETRO")
+            # Detalle por diámetro
+            st.markdown("**🔍 DETALLE POR DIÁMETRO**")
             for diametro, datos in resultados.items():
-                with st.expander(f"Diámetro {diametro} - {datos['kg_total']:,.1f} KG", expanded=True):
-                    st.write(f"**Metros Lineales:** {datos['ml_total']:,.1f} ML")
-                    st.write(f"**Peso Total:** {datos['kg_total']:,.1f} KG")
-                    st.write(f"**Piezas de 12m:** {datos['piezas_12m']:.0f}")
+                with st.expander(f"Diámetro {diametro} - {datos['kg_total']:,.1f} KG"):
+                    st.write(f"**ML:** {datos['ml_total']:,.1f}")
+                    st.write(f"**KG:** {datos['kg_total']:,.1f}")
+                    st.write(f"**Piezas 12m:** {datos['piezas_12m']:.0f}")
                     
         else:
-            # Estado inicial - métricas en cero CON TEXTO VISIBLE
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">📏 METROS LINEALES</div>
-                <div class="metric-value">0.0 ML</div>
+                <strong>📏 METROS LINEALES</strong><br>
+                <span style="color: #1f77b4; font-size: 1.5rem; font-weight: bold;">0.0 ML</span>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-title">⚖️ PESO TOTAL</div>
-                <div class="metric-value">0.0 KG</div>
-                <div class="metric-subvalue">0.00 Toneladas</div>
+                <strong>⚖️ PESO TOTAL</strong><br>
+                <span style="color: #ff7f0e; font-size: 1.5rem; font-weight: bold;">0.0 KG</span><br>
+                <span style="color: #2ca02c; font-weight: bold;">0.00 Toneladas</span>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-title">📦 PIEZAS DE 12m</div>
-                <div class="metric-value">0</div>
-                <div style="color: #666; font-size: 0.8rem; margin-top: 0.5rem;">Total de varillas necesarias</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.info("Agrega elementos para ver resultados detallados")
+            st.info("Agrega elementos para ver resultados")
 
     # Footer
     st.markdown("---")
